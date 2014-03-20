@@ -5,20 +5,6 @@
  *
  */
 
-#include <math.h>
-#include <ctype.h>
-#include <time.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <netdb.h>
-#include <sys/time.h>
-#include <sys/types.h>
-#include <sys/select.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 
 #include "3600dns.h"
 
@@ -35,24 +21,7 @@
  * size - The length of your packet
  */
 
-typedef struct dnspack{
-	unsigned int ID:16;
 
-	unsigned int RD:1;
-	unsigned int TC:1;
-	unsigned int AA:1;
-	unsigned int OPCODE:4;
-	unsigned int QR:1;
-
-	unsigned int RCODE:4;
-	unsigned int Z:3;
-	unsigned int RA:1;
-
-	unsigned int QDCOUNT:16;
-	unsigned int ANCOUNT:16;
-	unsigned int NSCOUNT:16;
-	unsigned int ARCOUNT:16;
-} dnspack;
 
 static void dump_packet(unsigned char *data, int size) {
     unsigned char *p = data;
@@ -103,29 +72,40 @@ static void dump_packet(unsigned char *data, int size) {
 }
 
 
-void build_query(char *dnsrequest){
+char *getqname(char *path){
+		/*
+		1.  Tokenize the input string on "."
+			// check out strtok
+		 
+		2.  For each token, determine the length
+			int len = strlen (token);
+		 
+		3.  Copy in the length, followed by memcpy()ing the string data
+			char tmp[offset] = len;
+			memcpy(tmp + offset + 1, token, len);
+		 
+		4.  Increment offset, repeat for the next label.  At the very end, write a 0-length label.
+			*/
 
-	dnspack packet;
-    
-    packet.ID = htons(1337);
-    packet.QR = 0;
-    packet.OPCODE = 0;
-    packet.AA = 0;
-    packet.TC = 0;
-    packet.RD = htons(1);
-    packet.RA = 0;
-    packet.Z = 0;
-    packet.RCODE = 0;
-    packet.QDCOUNT = htons(1);
-    packet.ANCOUNT = 0;
-    packet.NSCOUNT = 0;
-    packet.ARCOUNT = 0;
+  //char *pathtmp = (char *) malloc(2048);
+	//memset(pathtmp, 0, 2048);
+  //memcpy(pathtmp, path, strlen(path));
+  char *qname;
+	int i = 0;
+  int srl = 0;
+	char *token = strtok(path,".");
+	while(token != NULL){
+    srl = strlen(token);
+  	qname[i] = srl;
+	  memcpy(qname + i + 1, token, srl);
+    i += srl;
+    token = strtok(NULL, ".");
+  }
 
-	memcpy(dnsrequest, &packet, sizeof(packet));
-	
-	
+	//determine length of each token
+  return qname;
+
 }
-
 
 
 int main(int argc, char *argv[]) {
@@ -136,65 +116,120 @@ int main(int argc, char *argv[]) {
    * get you started.
    */
 
-  unsigned int defaultport = htons(53);
-
-  char fulldns[65536];
-  memset(fulldns, 0, 65536);
   
-  char name[2048];
-  char *server;
-  char *port;
-  char *namebuff;
+  char *name;	//name of server
+  char *server;			//ip address of server
+  char *buffer;		//buffer for the name
+	int port;				//port to connect to
     
-  unsigned int length = 0;
-  
-  memcpy(port, &defaultport, 8);
-  
+  unsigned int length = 0;	
+
   // process the arguments
-  for(int i = 0; i < argc; i++){
-    char *option = argv[i];
-    if (option[0] == '@'){
-      server = strtok(option, ":");
-      port = strtok(NULL, ":");
+
+	if (argc > 3) {
+		perror("Invalid number of arguments try again you fucking retard\n");
+		return -1;
+	}
+
+
+  for(int i = 1; i < argc; i++){
+		
+    char *option = argv[i];	//input arg i
+
+    if (option[0] == '@'){ 	
+			//get the server and port values
+      server = strtok(option, ":") + 1;
+			option++;
+      port = (int) strtok(NULL, ":"); 
+			//if the port is not given, then set port to the default port
+			if (port == NULL){
+				port = 53;
+			}
+						
     }
     else{
-      while((namebuff = strtok(option, "."))){
-	name[length] = strlen(namebuff);
-        length++;
-        name[length] = namebuff;
-	length += strlen(namebuff);
-      }
-      name[length] = 0;
-      length = length + 2;
-      name[length] = htons(1);
-      length = length + 2;
-      name[length] = htons(1);
-   }
+			name = option;
+   	}
+		
+
   }
    
-  
 
-  
-      
-
+	
+	//********************************
+	//
   // construct the DNS request
-  build_query(&fulldns);
+	//
+	//*************************************
 
+	//setup packet
+	char packet[65536]; // why this size specifically
+	memset(packet, 0, 65536);
+
+	//set up header
+	dnsheader header;
+  header.ID = htons(1337);
+  header.QR = 0;
+  header.OPCODE = 0;
+  header.AA = 0;
+  header.TC = 0;
+  header.RD = 1;
+  header.RA = 0;
+  header.Z = 0;
+  header.RCODE = 0;
+  header.QDCOUNT = 1;
+  header.ANCOUNT = 0;
+  header.NSCOUNT = 0;
+  header.ARCOUNT = 0;
+
+	//move header into the packet at [0]
+	memcpy(&packet, &header, sizeof(header));
+
+	length = sizeof(header);
+
+
+	printf("pre-parse name: %s\n", name);
+	//move qname into packet at [96]
+	char *qname = getqname(name);
+	printf("qname: %s\n", qname);
+	memcpy(&packet[length], qname , strlen(qname));
+ 
+	length = length + strlen(qname) + 1;
+
+	//setup question
+	dnsquestion question;
+	question.qtype = htons(1);
+	question.qclass = htons(1);
+
+	//copy the question into the packet at 97 + strlen(name)
+	memcpy(&packet[length], &question, sizeof(question));
+
+	length = length + sizeof(question);
+
+
+
+	dump_packet(packet, length); //probably shouldnt be here
   // send the DNS request (and call dump_packet with your request)
- fulldns[96] = name;
-  dump_packet(fulldns, (96 + length * 8)); 
-/** 
+ 	// packet[96] = name;
+  
+
+	// UP TO THIS POINT IS ALL MILESTONE 1
+
   // first, open a UDP socket  
   int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 
   // next, construct the destination address
   struct sockaddr_in out;
   out.sin_family = AF_INET;
-  out.sin_port = htons(<<DNS server port number, as short>>);
-  out.sin_addr.s_addr = inet_addr(<<DNS server IP as char*>>);
+  out.sin_port = htons( port ); 
+  out.sin_addr.s_addr = inet_addr( server ); 
 
-  if (sendto(sock, <<your packet>>, <<packet len>>, 0, &out, sizeof(out)) < 0) {
+	//printf("packet to send: %s\n", packet);
+
+  if (sendto(sock, &packet, sizeof(packet) , 0, &out, sizeof(out)) < 0) {
     // an error occurred
+		//perror("sendto fucked up\n");
+		//return -1;
   }
 
   // wait for the DNS reply (timeout: 5 seconds)
@@ -208,19 +243,22 @@ int main(int argc, char *argv[]) {
 
   // construct the timeout
   struct timeval t;
-  t.tv_sec = <<your timeout in seconds>>;
+  t.tv_sec = 5;
   t.tv_usec = 0;
 
+	
   // wait to receive, or for a timeout
   if (select(sock + 1, &socks, NULL, NULL, &t)) {
-    if (recvfrom(sock, <<your input buffer>>, <<input len>>, 0, &in, &in_len) < 0) {
+    //if (recvfrom(sock, namebuff, length, 0, &in, &in_len) < 0) {
       // an error occured
-    }
+    //}
   } else {
     // a timeout occurred
+		printf("NORESPONSE\n");
   }
 
+
   // print out the result
-  **/
+	
   return 0;
 }
